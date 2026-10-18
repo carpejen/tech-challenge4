@@ -1,0 +1,42 @@
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Maven
+target/
+dependency-reduced-pom.xml
+
+# AWS SAM
+.aws-sam/
+samconfig.toml
+
+# Arquivos locais de ambiente
+env.local.json
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# VS Code
+.vscode/
+
+# Java
+*.class
+hs_err_pid*
+
+# Arquivos temporários
+*.tmp
+*.temp
+*.swp
+*~

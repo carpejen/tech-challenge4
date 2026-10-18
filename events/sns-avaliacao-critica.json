@@ -1,0 +1,22 @@
+{
+  "Records": [
+    {
+      "EventSource": "aws:sns",
+      "EventVersion": "1.0",
+      "EventSubscriptionArn": "arn:aws:sns:us-east-1:000000000000:tech-challenge-4-critical-feedbacks:local",
+      "Sns": {
+        "Type": "Notification",
+        "MessageId": "11111111-1111-1111-1111-111111111111",
+        "TopicArn": "arn:aws:sns:us-east-1:000000000000:tech-challenge-4-critical-feedbacks",
+        "Subject": "Feedback crítico recebido",
+        "Message": "{\"id\":\"local-critical-001\",\"descricao\":\"A aula ficou sem áudio durante grande parte do conteúdo\",\"nota\":2,\"urgencia\":\"CRITICA\",\"dataEnvio\":\"2026-09-11T18:00:00Z\",\"timestampEpoch\":1789149600}",
+        "Timestamp": "2026-09-11T18:00:00.000Z",
+        "SignatureVersion": "1",
+        "Signature": "local",
+        "SigningCertUrl": "https://example.local/cert.pem",
+        "UnsubscribeUrl": "https://example.local/unsubscribe",
+        "MessageAttributes": {}
+      }
+    }
+  ]
+}

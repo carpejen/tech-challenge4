@@ -1,0 +1,291 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Tech Challenge 4 - Plataforma serverless de feedbacks - Java 21
+
+Parameters:
+  AdminEmail:
+    Type: String
+    Description: E-mail do administrador que receberá alertas críticos e relatórios semanais.
+  AwsEndpointUrl:
+    Type: String
+    Default: ''
+    Description: Endpoint AWS customizado utilizado somente na execução local.
+
+Globals:
+  Function:
+    Runtime: java21
+    Tracing: Active
+
+    RuntimeManagementConfig:
+      UpdateRuntimeOn: Auto
+
+    LoggingConfig:
+      LogFormat: JSON
+      ApplicationLogLevel: INFO
+      SystemLogLevel: INFO
+
+    Environment:
+      Variables:
+        AWS_ENDPOINT_URL: !Ref AwsEndpointUrl
+
+    Tags:
+      Project: tech-challenge-4
+      Runtime: java21
+
+  Api:
+    TracingEnabled: true
+
+
+Resources:
+
+  # ============================================================
+  # API GATEWAY
+  # ============================================================
+
+  FeedbackApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: tech-challenge-4-api
+      StageName: Prod
+      EndpointConfiguration:
+        Type: REGIONAL
+
+
+  # ============================================================
+  # DYNAMODB
+  # ============================================================
+
+  FeedbackTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: tech-challenge-4-feedbacks
+
+      BillingMode: PAY_PER_REQUEST
+
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+      SSESpecification:
+        SSEEnabled: true
+
+      Tags:
+        - Key: Project
+          Value: tech-challenge-4
+
+
+  # ============================================================
+  # SNS
+  # ============================================================
+
+  CriticalFeedbackTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: tech-challenge-4-critical-feedbacks
+
+      Tags:
+        - Key: Project
+          Value: tech-challenge-4
+
+
+  AdminNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: tech-challenge-4-admin-notifications
+
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AdminEmail
+
+      Tags:
+        - Key: Project
+          Value: tech-challenge-4
+
+
+  # ============================================================
+  # LAMBDA - RECEBER AVALIAÇÃO
+  # ============================================================
+
+  ReceberAvaliacaoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: tech-challenge-4-receber-avaliacao
+
+      Description: >
+        Recebe, valida, classifica e persiste avaliações dos estudantes.
+
+      PackageType: Zip
+      CodeUri: .
+
+      Handler: br.com.fiap.techchallenge4.avaliacao.handler.ReceberAvaliacaoHandler::handleRequest
+
+      Architectures:
+        - x86_64
+
+      MemorySize: 512
+      Timeout: 15
+
+      EphemeralStorage:
+        Size: 512
+
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref FeedbackTable
+          CRITICAL_TOPIC_ARN: !Ref CriticalFeedbackTopic
+
+      Policies:
+        - Statement:
+            - Sid: PutFeedback
+              Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource: !GetAtt FeedbackTable.Arn
+
+            - Sid: PublishCriticalFeedback
+              Effect: Allow
+              Action:
+                - sns:Publish
+              Resource: !Ref CriticalFeedbackTopic
+
+      Events:
+        PostAvaliacao:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FeedbackApi
+            Path: /avaliacao
+            Method: POST
+
+
+  # ============================================================
+  # LAMBDA - NOTIFICAÇÃO CRÍTICA
+  # ============================================================
+
+  NotificarAvaliacaoCriticaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: tech-challenge-4-notificar-avaliacao-critica
+
+      Description: >
+        Envia aos administradores notificações de avaliações
+        classificadas como críticas.
+
+      PackageType: Zip
+      CodeUri: .
+
+      Handler: br.com.fiap.techchallenge4.notificacao.handler.NotificarAvaliacaoCriticaHandler::handleRequest
+
+      Architectures:
+        - x86_64
+
+      MemorySize: 512
+      Timeout: 15
+
+      EphemeralStorage:
+        Size: 512
+
+      Environment:
+        Variables:
+          ADMIN_TOPIC_ARN: !Ref AdminNotificationTopic
+
+      Policies:
+        - Statement:
+            - Sid: PublishAdminNotification
+              Effect: Allow
+              Action:
+                - sns:Publish
+              Resource: !Ref AdminNotificationTopic
+
+      Events:
+        FeedbackCritico:
+          Type: SNS
+          Properties:
+            Topic: !Ref CriticalFeedbackTopic
+
+
+  # ============================================================
+  # LAMBDA - RELATÓRIO SEMANAL
+  # ============================================================
+
+  GerarRelatorioSemanalFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: tech-challenge-4-gerar-relatorio-semanal
+
+      Description: >
+        Consolida os feedbacks da semana e envia
+        o relatório aos administradores.
+
+      PackageType: Zip
+      CodeUri: .
+
+      Handler: br.com.fiap.techchallenge4.relatorio.handler.GerarRelatorioSemanalHandler::handleRequest
+
+      Architectures:
+        - x86_64
+
+      MemorySize: 1024
+      Timeout: 60
+
+      EphemeralStorage:
+        Size: 512
+
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref FeedbackTable
+          ADMIN_TOPIC_ARN: !Ref AdminNotificationTopic
+
+      Policies:
+        - Statement:
+            - Sid: ReadFeedbacks
+              Effect: Allow
+              Action:
+                - dynamodb:Scan
+              Resource: !GetAtt FeedbackTable.Arn
+
+            - Sid: PublishWeeklyReport
+              Effect: Allow
+              Action:
+                - sns:Publish
+              Resource: !Ref AdminNotificationTopic
+
+      Events:
+        RelatorioSemanal:
+          Type: Schedule
+          Properties:
+            Description: Gera o relatório semanal de feedbacks.
+            Schedule: 'cron(0 12 ? * MON *)'
+            Enabled: true
+
+
+Outputs:
+
+  ApiUrl:
+    Description: Endpoint base da API
+    Value: !Sub 'https://${FeedbackApi}.execute-api.${AWS::Region}.amazonaws.com/Prod'
+
+
+  AvaliacaoEndpoint:
+    Description: Endpoint POST para envio de avaliações
+    Value: !Sub 'https://${FeedbackApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/avaliacao'
+
+
+  FeedbackTableName:
+    Description: Nome da tabela DynamoDB
+    Value: !Ref FeedbackTable
+
+
+  CriticalFeedbackTopicArn:
+    Description: ARN do tópico SNS usado para encaminhar avaliações críticas
+    Value: !Ref CriticalFeedbackTopic
+
+
+  AdminNotificationTopicArn:
+    Description: ARN do tópico SNS usado para alertas e relatórios aos administradores
+    Value: !Ref AdminNotificationTopic

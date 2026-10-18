@@ -1,0 +1,10 @@
+{
+  "resource": "/avaliacao",
+  "path": "/avaliacao",
+  "httpMethod": "POST",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": "{\"descricao\":\"Excelente aula sobre AWS e serverless\",\"nota\":9}",
+  "isBase64Encoded": false
+}

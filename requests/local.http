@@ -1,0 +1,30 @@
+### Avaliação válida
+POST http://localhost:3000/avaliacao
+Content-Type: application/json
+
+{
+  "descricao": "Excelente aula sobre AWS e serverless",
+  "nota": 9
+}
+
+### Avaliação crítica
+POST http://localhost:3000/avaliacao
+Content-Type: application/json
+
+{
+  "descricao": "A aula ficou sem áudio durante grande parte do conteúdo",
+  "nota": 2
+}
+
+### Nota inválida
+POST http://localhost:3000/avaliacao
+Content-Type: application/json
+
+{
+  "descricao": "Nota fora do intervalo",
+  "nota": 11
+}
+
+### Corpo vazio
+POST http://localhost:3000/avaliacao
+Content-Type: application/json

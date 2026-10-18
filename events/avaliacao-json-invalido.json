@@ -1,0 +1,10 @@
+{
+  "resource": "/avaliacao",
+  "path": "/avaliacao",
+  "httpMethod": "POST",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": "{\"descricao\":\"JSON quebrado\",\"nota\":}",
+  "isBase64Encoded": false
+}
