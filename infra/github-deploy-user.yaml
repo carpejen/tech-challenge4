@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Bootstrap (criar UMA vez, pelo console do CloudFormation): usuario IAM usado pelo
+  GitHub Actions para fazer o deploy. A SCP gerenciada dos projetos da nova experiencia
+  AWS (DenyIAMRestrictedActions) bloqueia provedores OIDC (iam:*Provider*), entao o
+  pipeline usa a access key deste usuario, guardada nos Secrets do GitHub.
+
+Parameters:
+  PrefixoStack:
+    Type: String
+    Default: feedback-serverless
+    Description: Nome da stack SAM (as roles das Lambdas comecam com esse prefixo)
+
+Resources:
+  # O nome NÃO começa com o prefixo da stack de propósito.
+  UsuarioDeploy:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Sub "github-deploy-${PrefixoStack}"
+      Policies:
+        - PolicyName: deploy-da-stack-sam
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Só os serviços que a stack usa (inclui os das próximas Lambdas).
+              - Sid: ServicosDaStack
+                Effect: Allow
+                Action:
+                  - cloudformation:*
+                  - lambda:*
+                  - apigateway:*
+                  - dynamodb:*
+                  - sqs:*
+                  - sns:*
+                  - ses:*
+                  - logs:*
+                  - cloudwatch:*
+                  - scheduler:*
+                  - events:*
+                  - xray:*
+                Resource: "*"
+              # Bucket onde o SAM guarda os pacotes das Lambdas.
+              - Sid: BucketDoSam
+                Effect: Allow
+                Action: s3:*
+                Resource:
+                  - arn:aws:s3:::aws-sam-cli-managed-default-*
+                  - arn:aws:s3:::aws-sam-cli-managed-default-*/*
+              # Roles das Lambdas: só as que começam com o prefixo da stack.
+              - Sid: RolesDasLambdas
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:UpdateRole
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:PassRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:ListRoleTags
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:GetRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:ListAttachedRolePolicies
+                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/${PrefixoStack}-*"
+      Tags:
+        - Key: Projeto
+          Value: tech-challenge-4
+
+Outputs:
+  UsuarioDeploy:
+    Description: >
+      Crie a access key deste usuario em IAM > Usuarios > (este usuario) >
+      Credenciais de seguranca > Criar chave de acesso, e cadastre no GitHub
+      os secrets AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY
+    Value: !Ref UsuarioDeploy

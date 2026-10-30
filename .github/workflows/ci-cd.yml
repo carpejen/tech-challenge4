@@ -43,34 +43,37 @@ jobs:
     concurrency: deploy-aws          # nunca dois deploys ao mesmo tempo
     permissions:
       contents: read
-      id-token: write                # necessário para o login via OIDC
+    # Credenciais do usuário IAM de deploy (infra/github-deploy-user.yaml).
+    # OIDC não é possível: a SCP dos projetos da nova experiência AWS bloqueia iam:*Provider*.
     env:
-      AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - name: Avisar se o deploy ainda não foi configurado
-        if: env.AWS_DEPLOY_ROLE_ARN == ''
-        run: echo "::warning::Secret AWS_DEPLOY_ROLE_ARN não configurado; deploy ignorado. Veja docs/passo-a-passo-deploy.md"
+        if: env.AWS_ACCESS_KEY_ID == ''
+        run: echo "::warning::Secrets AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY não configurados; deploy ignorado. Veja docs/passo-a-passo-deploy.md"
 
       - uses: actions/checkout@v4
-        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        if: env.AWS_ACCESS_KEY_ID != ''
 
       - uses: actions/download-artifact@v4
-        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        if: env.AWS_ACCESS_KEY_ID != ''
         with:
           name: lambdas
           path: .
 
       - uses: aws-actions/setup-sam@v2
-        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        if: env.AWS_ACCESS_KEY_ID != ''
         with:
           use-installer: true
 
       - uses: aws-actions/configure-aws-credentials@v4
-        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        if: env.AWS_ACCESS_KEY_ID != ''
         with:
-          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-2
 
       # Lê template.yaml + samconfig.toml, sobe os zips para o S3 e cria/atualiza a stack
       - run: sam deploy
-        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        if: env.AWS_ACCESS_KEY_ID != ''
