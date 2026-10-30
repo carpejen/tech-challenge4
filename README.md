@@ -1,5 +1,7 @@
 # Plataforma de Feedback Serverless
 
+> 📚 Novo no projeto? Comece pela [documentação](docs/README.md): ela explica do zero o que é cada serviço da AWS, o pipeline e o deploy.
+
 Tech Challenge da Fase 4, FIAP Pós-Tech Arquitetura e Desenvolvimento Java.
 
 Estudantes avaliam aulas. Avaliações críticas geram aviso imediato para os administradores, e toda
@@ -44,7 +46,7 @@ tech-challenge4/
 ├── samconfig.toml                # parâmetros do sam deploy (stack, região us-east-2)
 ├── .github/workflows/ci-cd.yml   # PR: build + testes | merge na main: + deploy
 ├── infra/github-deploy-user.yaml # usuário IAM de deploy do GitHub Actions (criado uma vez)
-├── docs/passo-a-passo-deploy.md  # guia completo de deploy
+├── docs/                        # documentação: trilha de leitura do zero ao deploy
 │
 ├── shared/                       # domínio e contratos comuns (Java puro, sem AWS)
 │   └── br/fiap/feedback/
@@ -139,7 +141,7 @@ git push -u origin feat/minha-mudanca
 ## Deploy
 
 Automático pelo GitHub Actions a cada merge na `main`. A primeira configuração (usuário de deploy +
-secrets) e como testar estão em [docs/passo-a-passo-deploy.md](docs/passo-a-passo-deploy.md).
+secrets) e como testar estão em [docs/05-deploy.md](docs/05-deploy.md).
 
 > O pipeline usa a access key de um usuário IAM com permissões limitadas aos serviços do projeto, e não
 > OIDC. A SCP que a AWS aplica aos projetos da nova experiência bloqueia a criação de provedores de
