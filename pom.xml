@@ -10,7 +10,7 @@
     -->
     <groupId>br.fiap</groupId>
     <artifactId>feedback-serverless</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <packaging>pom</packaging>
     <name>Plataforma de Feedback Serverless</name>
     <description>Tech Challenge Fase 4 - FIAP Pós-Tech ADJ</description>
