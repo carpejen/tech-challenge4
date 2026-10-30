@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Bootstrap (criar UMA vez, pelo console do CloudFormation): deixa o GitHub Actions
+  do repositorio fazer deploy na AWS via OIDC, sem access key guardada no GitHub.
+
+Parameters:
+  GitHubOwner:
+    Type: String
+    Default: carpejen
+    Description: Dono (usuario ou organizacao) do repositorio no GitHub
+  GitHubRepo:
+    Type: String
+    Default: tech-challenge4
+    Description: Nome do repositorio
+  BranchDeploy:
+    Type: String
+    Default: main
+    Description: Unica branch autorizada a fazer deploy
+  PrefixoStack:
+    Type: String
+    Default: feedback-serverless
+    Description: Nome da stack SAM (as roles das Lambdas comecam com esse prefixo)
+  CriarProvedorOidc:
+    Type: String
+    Default: "sim"
+    AllowedValues: ["sim", "nao"]
+    Description: Use "nao" se a conta ja tiver o provedor token.actions.githubusercontent.com
+  ArnProvedorOidcExistente:
+    Type: String
+    Default: ""
+    Description: Só preencha se CriarProvedorOidc = nao (ARN do provedor existente)
+
+Conditions:
+  CriarProvedor: !Equals [!Ref CriarProvedorOidc, "sim"]
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CriarProvedor
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+
+  # O nome NÃO começa com o prefixo da stack de propósito:
+  # assim esta role não consegue alterar a si mesma.
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "github-deploy-${PrefixoStack}"
+      Description: Assumida pelo GitHub Actions (somente a branch de deploy do repositorio)
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If [CriarProvedor, !Ref GitHubOidcProvider, !Ref ArnProvedorOidcExistente]
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                "token.actions.githubusercontent.com:aud": sts.amazonaws.com
+                "token.actions.githubusercontent.com:sub": !Sub "repo:${GitHubOwner}/${GitHubRepo}:ref:refs/heads/${BranchDeploy}"
+      # PowerUserAccess: cria Lambda, API Gateway, DynamoDB, SQS, S3, CloudFormation...
+      # mas NÃO mexe em IAM. O IAM necessário vem na política abaixo, limitada ao prefixo.
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/PowerUserAccess
+      Policies:
+        - PolicyName: roles-das-lambdas-da-stack
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:UpdateRole
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:PassRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:ListRoleTags
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:GetRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:ListAttachedRolePolicies
+                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/${PrefixoStack}-*"
+      Tags:
+        - Key: Projeto
+          Value: tech-challenge-4
+
+Outputs:
+  RoleArn:
+    Description: Copie este valor para o secret AWS_DEPLOY_ROLE_ARN do repositorio no GitHub
+    Value: !GetAtt GitHubDeployRole.Arn

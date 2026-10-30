@@ -1,0 +1,161 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Tech Challenge Fase 4 (FIAP Pos-Tech ADJ) - Plataforma de Feedback Serverless.
+  Etapa 1: recebimento de avaliacoes (API Gateway + Lambda + DynamoDB + SQS).
+
+# Valores aplicados a todas as funções Lambda deste template.
+# Cada Lambda é um módulo Maven com o seu próprio pacote (<modulo>/target/function.zip),
+# definido no CodeUri de cada função. O handler abaixo é o "ponto de entrada" do Quarkus,
+# que inicializa o framework e chama a classe @Named do módulo.
+Globals:
+  Function:
+    Runtime: java21
+    Handler: io.quarkus.amazon.lambda.runtime.QuarkusStreamHandler::handleRequest
+    MemorySize: 512
+    Timeout: 20
+    Tracing: Active
+    Tags:
+      Projeto: tech-challenge-4
+      Curso: fiap-adj
+
+Resources:
+
+  # ---------------------------------------------------------------- Dados
+
+  # pk = DIA#yyyy-MM-dd (dia em Brasília) | sk = <dataEnvio>#<id>
+  # Capacidade PROVISIONADA de propósito: a cota Always Free do DynamoDB
+  # (25 RCU / 25 WCU) só vale nesse modo. Sem auto scaling (ele criaria alarmes).
+  # Criptografia em repouso: padrão do DynamoDB, com chave da AWS (sem custo).
+  TabelaAvaliacoes:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${AWS::StackName}-avaliacoes"
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      Tags:
+        - Key: Projeto
+          Value: tech-challenge-4
+
+  # ---------------------------------------------------------------- Mensageria
+
+  # Mensagens que falharem 3 vezes no consumidor (notificar-urgencia) vêm para cá.
+  FilaCriticasDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${AWS::StackName}-avaliacoes-criticas-dlq"
+      MessageRetentionPeriod: 1209600   # 14 dias
+      SqsManagedSseEnabled: true        # criptografia em repouso sem custo
+      Tags:
+        - Key: Projeto
+          Value: tech-challenge-4
+
+  # receber-avaliacao publica aqui as avaliações CRITICA.
+  # O consumidor (notificar-urgencia) entra na próxima etapa.
+  FilaCriticas:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${AWS::StackName}-avaliacoes-criticas"
+      VisibilityTimeout: 120            # >= 6x o timeout da Lambda consumidora
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt FilaCriticasDLQ.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Projeto
+          Value: tech-challenge-4
+
+  # ---------------------------------------------------------------- API
+
+  # REST API com API key obrigatória e plano de uso (throttling + cota mensal).
+  # O SAM cria automaticamente a API key, o usage plan e o vínculo entre eles.
+  FeedbackApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "${AWS::StackName}-api"
+      StageName: prod
+      TracingEnabled: true
+      Auth:
+        ApiKeyRequired: true
+        UsagePlan:
+          CreateUsagePlan: PER_API
+          UsagePlanName: !Sub "${AWS::StackName}-plano-de-uso"
+          Throttle:
+            RateLimit: 5
+            BurstLimit: 10
+          Quota:
+            Limit: 10000
+            Period: MONTH
+
+  # ---------------------------------------------------------------- Funções
+
+  ReceberAvaliacaoLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}-receber-avaliacao"
+      RetentionInDays: 7
+
+  # POST /avaliacao -> valida, classifica a urgência, grava no DynamoDB
+  # e, se for CRITICA, publica na fila de notificação.
+  ReceberAvaliacaoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-receber-avaliacao"
+      Description: Recebe a avaliacao, classifica a urgencia, grava e encaminha as criticas
+      CodeUri: receber-avaliacao/target/function.zip
+      LoggingConfig:
+        LogGroup: !Ref ReceberAvaliacaoLogs
+      Environment:
+        Variables:
+          TABELA_AVALIACOES: !Ref TabelaAvaliacoes
+          FILA_CRITICAS_URL: !Ref FilaCriticas
+      # Privilégio mínimo: só PutItem na tabela e SendMessage na fila.
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !GetAtt TabelaAvaliacoes.Arn
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt FilaCriticas.QueueName
+      Events:
+        PostAvaliacao:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FeedbackApi
+            Path: /avaliacao
+            Method: post
+
+  # Próximas etapas (cada uma no seu módulo, com CodeUri próprio):
+  #   NotificarUrgenciaFunction    -> notificar-urgencia/target/function.zip      (gatilho: FilaCriticas)
+  #   GerarRelatorioSemanalFunction -> gerar-relatorio-semanal/target/function.zip (gatilho: ScheduleV2)
+
+Outputs:
+  UrlAvaliacao:
+    Description: Endpoint do POST /avaliacao (envie o header x-api-key)
+    Value: !Sub "https://${FeedbackApi}.execute-api.${AWS::Region}.amazonaws.com/prod/avaliacao"
+  ApiKeyId:
+    Description: >
+      ID da API key gerada pelo SAM. Para ver o valor:
+      aws apigateway get-api-key --include-value --api-key <ID> (ou console API Gateway > API keys)
+    Value: !Ref FeedbackApiApiKey
+  TabelaAvaliacoes:
+    Description: Nome da tabela DynamoDB
+    Value: !Ref TabelaAvaliacoes
+  FilaCriticasUrl:
+    Description: URL da fila de avaliações críticas
+    Value: !Ref FilaCriticas
+  FilaCriticasArn:
+    Description: ARN da fila de avaliações críticas (gatilho da notificar-urgencia)
+    Value: !GetAtt FilaCriticas.Arn
