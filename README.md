@@ -43,7 +43,7 @@ tech-challenge4/
 ├── template.yaml                 # infraestrutura (AWS SAM): UMA stack com todas as Lambdas
 ├── samconfig.toml                # parâmetros do sam deploy (stack, região us-east-2)
 ├── .github/workflows/ci-cd.yml   # PR: build + testes | merge na main: + deploy
-├── infra/github-oidc.yaml        # role de deploy via OIDC (criada uma vez)
+├── infra/github-deploy-user.yaml # usuário IAM de deploy do GitHub Actions (criado uma vez)
 ├── docs/passo-a-passo-deploy.md  # guia completo de deploy
 │
 ├── shared/                       # domínio e contratos comuns (Java puro, sem AWS)
@@ -138,5 +138,9 @@ git push -u origin feat/minha-mudanca
 
 ## Deploy
 
-Automático pelo GitHub Actions a cada merge na `main`. A primeira configuração (role OIDC + secret)
-e como testar estão em [docs/passo-a-passo-deploy.md](docs/passo-a-passo-deploy.md).
+Automático pelo GitHub Actions a cada merge na `main`. A primeira configuração (usuário de deploy +
+secrets) e como testar estão em [docs/passo-a-passo-deploy.md](docs/passo-a-passo-deploy.md).
+
+> O pipeline usa a access key de um usuário IAM com permissões limitadas aos serviços do projeto, e não
+> OIDC. A SCP que a AWS aplica aos projetos da nova experiência bloqueia a criação de provedores de
+> identidade (`iam:*Provider*`).

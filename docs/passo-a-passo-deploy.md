@@ -12,7 +12,7 @@ A Lambda **não busca o código no GitHub sozinha**. Quem leva o código até el
 flowchart LR
     DEV["merge do PR na main"] --> GHA["GitHub Actions<br/>mvn verify"]
     GHA -->|"gera um zip por Lambda"| ZIP["receber-avaliacao/target/function.zip<br/>(+ os das próximas Lambdas)"]
-    GHA -->|"login via OIDC<br/>(sem access key)"| SAM["sam deploy"]
+    GHA -->|"login com a access key<br/>(GitHub Secrets)"| SAM["sam deploy"]
     ZIP --> SAM
     SAM -->|1. envia os zips| S3[("Bucket S3<br/>do SAM")]
     SAM -->|2. envia o template.yaml| CFN["CloudFormation<br/>stack feedback-serverless"]
@@ -22,8 +22,8 @@ flowchart LR
 
 1. O `mvn verify` na raiz compila e testa todos os módulos, e gera um pacote por Lambda
    (`receber-avaliacao/target/function.zip` etc.).
-2. O GitHub Actions faz login na AWS assumindo uma role IAM via **OIDC**. É um token
-   temporário emitido pelo GitHub, então nenhuma senha ou access key fica guardada.
+2. O GitHub Actions faz login na AWS com a access key de um **usuário IAM de deploy**, guardada
+   nos **Secrets** do GitHub. Esse usuário tem permissões limitadas aos serviços do projeto (passo 3).
 3. O `sam deploy` sobe os zips para um bucket S3 e entrega o `template.yaml` ao
    **CloudFormation**, que cria ou atualiza todos os recursos: Lambda, API Gateway,
    tabela, filas e logs. Esse conjunto de recursos é a **stack** `feedback-serverless`.
@@ -39,7 +39,7 @@ flowchart LR
 | O quê | Para quê |
 |---|---|
 | Acesso de **admin** ao repositório no GitHub | Cadastrar o secret do deploy (passo 4) |
-| Acesso ao projeto AWS `tech-challenge-4-fiap-adj` (região **us-east-2**, Ohio) | Criar a role de deploy (passo 3) e conferir os recursos |
+| Acesso ao projeto AWS `tech-challenge-4-fiap-adj` (região **us-east-2**, Ohio) | Criar o usuário de deploy (passo 3) e conferir os recursos |
 | Opcional: Java 21 + Maven 3.9 na máquina | Rodar os testes localmente (`mvn verify`) |
 
 Não é preciso instalar AWS CLI nem SAM CLI na sua máquina: o deploy roda no GitHub Actions.
@@ -59,48 +59,60 @@ No GitHub, abra o pull request da branch para a `main`. O workflow `ci-cd` roda 
 **Build e testes**, que precisa ficar verde antes do merge.
 
 Depois do merge, o workflow roda de novo na `main`. Até os passos 3 e 4 serem feitos, o job
-**Deploy na AWS** termina com um aviso de que o secret `AWS_DEPLOY_ROLE_ARN` não está configurado.
+**Deploy na AWS** termina com um aviso de que os secrets da AWS não estão configurados.
 É esperado.
 
 ---
 
-## 3. Criar a role de deploy na AWS (uma vez só)
+## 3. Criar o usuário de deploy na AWS (uma vez só)
 
-O arquivo `infra/github-oidc.yaml` cria duas coisas:
+> **Por que não OIDC?** O normal seria o GitHub Actions entrar na AWS por OIDC, com token temporário
+> e sem chave guardada. Mas o projeto da nova experiência AWS tem uma política gerenciada pela AWS
+> (SCP `DenyIAMRestrictedActions`) que bloqueia a criação de provedores de identidade
+> (`iam:*Provider*`). A tentativa termina em `CREATE_FAILED ... explicit deny in a service control policy`.
+> Criar usuário IAM com access key é permitido, então o deploy usa esse caminho, com as
+> proteções abaixo.
 
-- o **provedor OIDC** do GitHub, que faz a AWS confiar nos tokens emitidos pelo GitHub Actions;
-- a role **`github-deploy-feedback-serverless`**, que só pode ser assumida por
-  `carpejen/tech-challenge4` na branch `main`.
+O arquivo `infra/github-deploy-user.yaml` cria o usuário **`github-deploy-feedback-serverless`**,
+com permissão **somente** para os serviços da stack (CloudFormation, Lambda, API Gateway,
+DynamoDB, SQS, SNS/SES, CloudWatch, Scheduler), para o bucket do SAM e para as roles que começam
+com `feedback-serverless-`, que são as roles das Lambdas.
 
-Pelo console da AWS:
+**3.1. Criar a pilha** (console da AWS, região **us-east-2**):
 
-1. Abra o **CloudFormation** (confira que a região no canto superior é **us-east-2**).
-2. **Criar pilha** (Create stack) → **Com novos recursos (padrão)**.
-3. **Fazer upload de um arquivo de modelo** → escolha `infra/github-oidc.yaml` → Próximo.
-4. Nome da pilha: `github-oidc`. Confira os parâmetros (`carpejen`, `tech-challenge4`, `main`)
-   e avance com os valores padrão.
-5. Na revisão, marque a caixa **"Eu reconheço que o AWS CloudFormation pode criar recursos do IAM
-   com nomes personalizados"** e clique em **Enviar**.
-6. Espere o status **CREATE_COMPLETE**. Na aba **Saídas** (Outputs), copie o valor de **RoleArn**.
-   Ele tem este formato: `arn:aws:iam::481737577322:role/github-deploy-feedback-serverless`.
+1. **CloudFormation** → **Criar pilha** → **Com novos recursos (padrão)**.
+2. **Fazer upload de um arquivo de modelo** → escolha `infra/github-deploy-user.yaml` → Próximo.
+3. Nome da pilha: `github-deploy-user` → avance com os valores padrão.
+4. Na revisão, marque **"Eu reconheço que o AWS CloudFormation pode criar recursos do IAM com
+   nomes personalizados"** → **Enviar**.
+5. Espere **CREATE_COMPLETE**.
 
-> Se der erro dizendo que o provedor `token.actions.githubusercontent.com` já existe, apague a pilha
-> com falha e crie de novo com `CriarProvedorOidc = nao`, preenchendo o ARN do provedor existente
-> (IAM → Provedores de identidade).
+**3.2. Criar a access key:**
 
-**Por que essa role é segura o bastante:** ela tem `PowerUserAccess` (cria Lambda, API, tabelas etc.,
-mas não mexe em IAM) e só pode gerenciar roles que começam com `feedback-serverless-`, que são as
-roles das Lambdas. O nome dela começa com `github-deploy-` de propósito, para ela não conseguir
-alterar a si mesma.
+1. **IAM** → **Usuários** → `github-deploy-feedback-serverless` → aba **Credenciais de segurança**.
+2. **Chaves de acesso** → **Criar chave de acesso** → caso de uso **"Aplicação em execução fora da AWS"**
+   → Próximo → **Criar chave de acesso**.
+3. Copie o **ID da chave de acesso** e a **Chave de acesso secreta**. A secreta só aparece
+   **essa vez**. Não salve em arquivo do repositório, não mande no chat do grupo, e vá direto
+   para o passo 4.
+
+**Cuidados com a chave:**
+- Ela fica **só** nos Secrets do GitHub, que guardam o valor criptografado e escondem nos logs.
+- O usuário não tem senha de console e só alcança os serviços da stack.
+- Tudo o que ele faz aparece no **CloudTrail** com o nome `github-deploy-feedback-serverless`.
+- Ao fim da disciplina, desative ou apague a chave (passo 11).
 
 ---
 
-## 4. Cadastrar o secret no GitHub
+## 4. Cadastrar os secrets no GitHub
 
-No repositório: **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
+No repositório: **Settings** → **Secrets and variables** → **Actions** → **New repository secret**.
+Crie dois secrets:
 
-- **Name:** `AWS_DEPLOY_ROLE_ARN`
-- **Secret:** o RoleArn copiado no passo 3
+| Name | Secret |
+|---|---|
+| `AWS_ACCESS_KEY_ID` | o ID da chave de acesso |
+| `AWS_SECRET_ACCESS_KEY` | a chave de acesso secreta |
 
 > Só quem é admin do repositório vê o menu Settings. Se você não for, peça para a dona
 > do repositório (carpejen) cadastrar.
@@ -193,7 +205,8 @@ Não tem passo manual: **o código no GitHub (main) é sempre o que está na AWS
 | Sintoma | Causa provável |
 |---|---|
 | Job de deploy com aviso "secret não configurado" | Faltou o passo 4 |
-| `Not authorized to perform sts:AssumeRoleWithWebIdentity` | Dono, repositório ou branch diferentes dos parâmetros da pilha `github-oidc` |
+| `InvalidClientTokenId` / `SignatureDoesNotMatch` | Secret `AWS_ACCESS_KEY_ID` ou `AWS_SECRET_ACCESS_KEY` copiado errado |
+| `... is not authorized to perform ...` no deploy | Falta permissão no usuário de deploy: adicione a ação em `infra/github-deploy-user.yaml` e atualize a pilha `github-deploy-user` |
 | CloudFormation `ROLLBACK_COMPLETE` | Veja o primeiro evento em vermelho na aba Eventos. Depois apague a stack antes de tentar de novo |
 | `403 Forbidden` no curl | Header `x-api-key` ausente ou com valor errado |
 | `500` na resposta | Veja o log da Lambda no CloudWatch |
@@ -207,4 +220,4 @@ No CloudFormation, apague nesta ordem:
 
 1. `feedback-serverless` (Lambda, API, tabela, filas e logs);
 2. `aws-sam-cli-managed-default` (esvazie o bucket S3 dela antes);
-3. `github-oidc` (role de deploy e provedor OIDC).
+3. `github-deploy-user`: apaga o usuário de deploy e invalida a access key. Também apague os dois secrets no GitHub.
