@@ -67,6 +67,15 @@ Resources:
                   - iam:ListRolePolicies
                   - iam:ListAttachedRolePolicies
                 Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/${PrefixoStack}-*"
+              # Na primeira criação de um stage, o API Gateway cria a role de serviço
+              # AWSServiceRoleForAPIGateway (uma vez por conta). Só essa é permitida.
+              - Sid: RoleDeServicoDoApiGateway
+                Effect: Allow
+                Action: iam:CreateServiceLinkedRole
+                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ops.apigateway.amazonaws.com/AWSServiceRoleForAPIGateway"
+                Condition:
+                  StringEquals:
+                    iam:AWSServiceName: ops.apigateway.amazonaws.com
       Tags:
         - Key: Projeto
           Value: tech-challenge-4
