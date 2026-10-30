@@ -1,0 +1,76 @@
+name: ci-cd
+
+# Pull request: compila e roda os testes.
+# Push na main: compila, testa e faz deploy na AWS (sam deploy).
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build e testes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # verify na raiz = compila e testa todos os módulos e gera um
+      # <modulo>/target/function.zip para cada Lambda
+      - run: mvn -B verify
+
+      # Guarda os pacotes das Lambdas para o job de deploy (mantém as pastas)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lambdas
+          path: "*/target/function.zip"
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    name: Deploy na AWS
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency: deploy-aws          # nunca dois deploys ao mesmo tempo
+    permissions:
+      contents: read
+      id-token: write                # necessário para o login via OIDC
+    env:
+      AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+    steps:
+      - name: Avisar se o deploy ainda não foi configurado
+        if: env.AWS_DEPLOY_ROLE_ARN == ''
+        run: echo "::warning::Secret AWS_DEPLOY_ROLE_ARN não configurado; deploy ignorado. Veja docs/passo-a-passo-deploy.md"
+
+      - uses: actions/checkout@v4
+        if: env.AWS_DEPLOY_ROLE_ARN != ''
+
+      - uses: actions/download-artifact@v4
+        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        with:
+          name: lambdas
+          path: .
+
+      - uses: aws-actions/setup-sam@v2
+        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        with:
+          use-installer: true
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-2
+
+      # Lê template.yaml + samconfig.toml, sobe os zips para o S3 e cria/atualiza a stack
+      - run: sam deploy
+        if: env.AWS_DEPLOY_ROLE_ARN != ''

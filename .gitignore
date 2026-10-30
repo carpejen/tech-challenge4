@@ -1,0 +1,9 @@
+# Maven / Quarkus
+target/
+# SAM
+.aws-sam/
+# IDEs e SO
+.idea/
+*.iml
+.vscode/
+.DS_Store

@@ -1,0 +1,14 @@
+# Configuração do "sam deploy" (usada localmente e pelo GitHub Actions).
+version = 0.1
+
+[default.global.parameters]
+stack_name = "feedback-serverless"
+
+[default.deploy.parameters]
+region = "us-east-2"                 # região do projeto na AWS (Ohio)
+capabilities = "CAPABILITY_IAM"      # o template cria roles IAM para as Lambdas
+resolve_s3 = true                    # o SAM cria/usa um bucket para guardar o function.zip
+s3_prefix = "feedback-serverless"
+confirm_changeset = false
+fail_on_empty_changeset = false
+tags = "Projeto=\"tech-challenge-4\" Curso=\"fiap-adj\""
