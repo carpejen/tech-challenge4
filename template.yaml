@@ -4,6 +4,16 @@ Description: >
   Tech Challenge Fase 4 (FIAP Pos-Tech ADJ) - Plataforma de Feedback Serverless.
   Etapa 1: recebimento de avaliacoes (API Gateway + Lambda + DynamoDB + SQS).
 
+Parameters:
+  EmailRemetente:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /feedback/email-remetente
+    Description: E-mail remetente verificado no SES
+  EmailAdmin:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /feedback/email-admin
+    Description: E-mail do administrador (verificado no SES enquanto estiver no sandbox)
+
 # Valores aplicados a todas as funções Lambda deste template.
 # Cada Lambda é um módulo Maven com o seu próprio pacote (<modulo>/target/function.zip),
 # definido no CodeUri de cada função. O handler abaixo é o "ponto de entrada" do Quarkus,
@@ -136,6 +146,41 @@ Resources:
             RestApiId: !Ref FeedbackApi
             Path: /avaliacao
             Method: post
+
+  NotificarUrgenciaLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}-notificar-urgencia"
+      RetentionInDays: 7
+
+  # Fila avaliacoes-criticas -> e-mail ao administrador via SES.
+  # Exceção = mensagem volta à fila; após 3 tentativas vai para a DLQ.
+  NotificarUrgenciaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-notificar-urgencia"
+      Description: Consome a fila de avaliacoes criticas e envia e-mail ao administrador
+      CodeUri: notificar-urgencia/target/function.zip
+      LoggingConfig:
+        LogGroup: !Ref NotificarUrgenciaLogs
+      Environment:
+        Variables:
+          EMAIL_REMETENTE: !Ref EmailRemetente
+          EMAIL_ADMIN: !Ref EmailAdmin
+      # Privilégio mínimo: só envio de e-mail pelas identidades do SES desta conta/região.
+      # A permissão de consumir a fila o SAM adiciona sozinho por causa do evento SQS.
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: ses:SendEmail
+              Resource: !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*"
+      Events:
+        FilaCriticas:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt FilaCriticas.Arn
+            BatchSize: 1
+
 
   # Próximas etapas (cada uma no seu módulo, com CodeUri próprio):
   #   NotificarUrgenciaFunction    -> notificar-urgencia/target/function.zip      (gatilho: FilaCriticas)
