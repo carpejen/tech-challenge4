@@ -38,6 +38,7 @@ Resources:
                   - scheduler:*
                   - events:*
                   - xray:*
+                  - ssm:GetParameters
                 Resource: "*"
               # Bucket onde o SAM guarda os pacotes das Lambdas.
               - Sid: BucketDoSam
