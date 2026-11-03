@@ -2,8 +2,12 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
   Tech Challenge Fase 4 (FIAP Pos-Tech ADJ) - Plataforma de Feedback Serverless.
-  Etapa 1: recebimento de avaliacoes (API Gateway + Lambda + DynamoDB + SQS).
-
+  Recebimento de avaliacoes, notificacao de urgencias e relatorio semanal.
+Metadata:
+  cfn-lint:
+    config:
+      ignore_checks:
+        - W3005
 Parameters:
   EmailRemetente:
     Type: AWS::SSM::Parameter::Value<String>
@@ -16,8 +20,7 @@ Parameters:
 
 # Valores aplicados a todas as funções Lambda deste template.
 # Cada Lambda é um módulo Maven com o seu próprio pacote (<modulo>/target/function.zip),
-# definido no CodeUri de cada função. O handler abaixo é o "ponto de entrada" do Quarkus,
-# que inicializa o framework e chama a classe @Named do módulo.
+# definido no CodeUri de cada função.
 Globals:
   Function:
     Runtime: java21
@@ -32,11 +35,10 @@ Globals:
 Resources:
 
   # ---------------------------------------------------------------- Dados
-
   # pk = DIA#yyyy-MM-dd (dia em Brasília) | sk = <dataEnvio>#<id>
   # Capacidade PROVISIONADA de propósito: a cota Always Free do DynamoDB
-  # (25 RCU / 25 WCU) só vale nesse modo. Sem auto scaling (ele criaria alarmes).
-  # Criptografia em repouso: padrão do DynamoDB, com chave da AWS (sem custo).
+  # (25 RCU / 25 WCU) só vale nesse modo.
+  # Criptografia em repouso: padrão do DynamoDB, com chave da AWS.
   TabelaAvaliacoes:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -60,25 +62,23 @@ Resources:
           Value: tech-challenge-4
 
   # ---------------------------------------------------------------- Mensageria
-
-  # Mensagens que falharem 3 vezes no consumidor (notificar-urgencia) vêm para cá.
+  # Mensagens críticas que falharem 3 vezes no consumidor vêm para cá.
   FilaCriticasDLQ:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub "${AWS::StackName}-avaliacoes-criticas-dlq"
-      MessageRetentionPeriod: 1209600   # 14 dias
-      SqsManagedSseEnabled: true        # criptografia em repouso sem custo
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
       Tags:
         - Key: Projeto
           Value: tech-challenge-4
 
   # receber-avaliacao publica aqui as avaliações CRITICA.
-  # O consumidor (notificar-urgencia) entra na próxima etapa.
   FilaCriticas:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub "${AWS::StackName}-avaliacoes-criticas"
-      VisibilityTimeout: 120            # >= 6x o timeout da Lambda consumidora
+      VisibilityTimeout: 120
       SqsManagedSseEnabled: true
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt FilaCriticasDLQ.Arn
@@ -87,10 +87,20 @@ Resources:
         - Key: Projeto
           Value: tech-challenge-4
 
-  # ---------------------------------------------------------------- API
+  # Falhas definitivas relacionadas à execução do relatório semanal.
+  FilaRelatorioSemanalDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${AWS::StackName}-relatorio-semanal-dlq"
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Projeto
+          Value: tech-challenge-4
 
-  # REST API com API key obrigatória e plano de uso (throttling + cota mensal).
-  # O SAM cria automaticamente a API key, o usage plan e o vínculo entre eles.
+  # ---------------------------------------------------------------- API
+  # REST API com API key obrigatória e plano de uso.
+  # O SAM cria automaticamente a API key, o usage plan e o vínculo.
   FeedbackApi:
     Type: AWS::Serverless::Api
     Properties:
@@ -109,7 +119,7 @@ Resources:
             Limit: 10000
             Period: MONTH
 
-  # ---------------------------------------------------------------- Funções
+  # ---------------------------------------------------------------- Função: receber avaliação
 
   ReceberAvaliacaoLogs:
     Type: AWS::Logs::LogGroup
@@ -117,28 +127,34 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/${AWS::StackName}-receber-avaliacao"
       RetentionInDays: 7
 
-  # POST /avaliacao -> valida, classifica a urgência, grava no DynamoDB
-  # e, se for CRITICA, publica na fila de notificação.
+  # POST /avaliacao -> valida, classifica, grava no DynamoDB
+  # e, se for CRITICA, publica na fila.
   ReceberAvaliacaoFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "${AWS::StackName}-receber-avaliacao"
       Description: Recebe a avaliacao, classifica a urgencia, grava e encaminha as criticas
       CodeUri: receber-avaliacao/target/function.zip
+
       LoggingConfig:
         LogGroup: !Ref ReceberAvaliacaoLogs
+
       Environment:
         Variables:
           TABELA_AVALIACOES: !Ref TabelaAvaliacoes
           FILA_CRITICAS_URL: !Ref FilaCriticas
-      # Privilégio mínimo: só PutItem na tabela e SendMessage na fila.
+
+      # Privilégio mínimo: PutItem na tabela e SendMessage na fila.
       Policies:
         - Statement:
             - Effect: Allow
-              Action: dynamodb:PutItem
+              Action:
+                - dynamodb:PutItem
               Resource: !GetAtt TabelaAvaliacoes.Arn
+
         - SQSSendMessagePolicy:
             QueueName: !GetAtt FilaCriticas.QueueName
+
       Events:
         PostAvaliacao:
           Type: Api
@@ -146,6 +162,8 @@ Resources:
             RestApiId: !Ref FeedbackApi
             Path: /avaliacao
             Method: post
+
+  # ---------------------------------------------------------------- Função: notificar urgência
 
   NotificarUrgenciaLogs:
     Type: AWS::Logs::LogGroup
@@ -161,19 +179,23 @@ Resources:
       FunctionName: !Sub "${AWS::StackName}-notificar-urgencia"
       Description: Consome a fila de avaliacoes criticas e envia e-mail ao administrador
       CodeUri: notificar-urgencia/target/function.zip
+
       LoggingConfig:
         LogGroup: !Ref NotificarUrgenciaLogs
+
       Environment:
         Variables:
           EMAIL_REMETENTE: !Ref EmailRemetente
           EMAIL_ADMIN: !Ref EmailAdmin
-      # Privilégio mínimo: só envio de e-mail pelas identidades do SES desta conta/região.
-      # A permissão de consumir a fila o SAM adiciona sozinho por causa do evento SQS.
+
+      # Privilégio mínimo: apenas envio de e-mail pelo SES.
       Policies:
         - Statement:
             - Effect: Allow
-              Action: ses:SendEmail
+              Action:
+                - ses:SendEmail
               Resource: !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*"
+
       Events:
         FilaCriticas:
           Type: SQS
@@ -181,26 +203,274 @@ Resources:
             Queue: !GetAtt FilaCriticas.Arn
             BatchSize: 1
 
+  # ---------------------------------------------------------------- Função: relatório semanal
 
-  # Próximas etapas (cada uma no seu módulo, com CodeUri próprio):
-  #   NotificarUrgenciaFunction    -> notificar-urgencia/target/function.zip      (gatilho: FilaCriticas)
-  #   GerarRelatorioSemanalFunction -> gerar-relatorio-semanal/target/function.zip (gatilho: ScheduleV2)
+  GerarRelatorioSemanalLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}-gerar-relatorio-semanal"
+      RetentionInDays: 7
+
+  # Executada toda segunda-feira às 08h no horário de Brasília.
+  # Consulta os sete dias anteriores e envia o relatório pelo SES.
+  GerarRelatorioSemanalFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-gerar-relatorio-semanal"
+      Description: Consolida os feedbacks da semana anterior e envia o relatorio ao administrador
+      CodeUri: gerar-relatorio-semanal/target/function.zip
+
+      LoggingConfig:
+        LogGroup: !Ref GerarRelatorioSemanalLogs
+
+      Environment:
+        Variables:
+          TABELA_AVALIACOES: !Ref TabelaAvaliacoes
+          EMAIL_REMETENTE: !Ref EmailRemetente
+          EMAIL_ADMIN: !Ref EmailAdmin
+
+      # Privilégio mínimo:
+      # Query no DynamoDB e envio do relatório pelo SES.
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+              Resource: !GetAtt TabelaAvaliacoes.Arn
+
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+              Resource: !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*"
+
+      # Trata eventos que chegaram à Lambda mas não puderam
+      # ser processados após as tentativas assíncronas.
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt FilaRelatorioSemanalDLQ.Arn
+
+      Events:
+        RelatorioSemanal:
+          Type: ScheduleV2
+          Properties:
+            Description: Gera o relatorio semanal de feedbacks
+            ScheduleExpression: "cron(0 8 ? * MON *)"
+            ScheduleExpressionTimezone: America/Sao_Paulo
+            State: ENABLED
+
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+              MaximumEventAgeInSeconds: 3600
+
+            # Trata falha do Scheduler ao entregar o evento à Lambda.
+            DeadLetterConfig:
+              Arn: !GetAtt FilaRelatorioSemanalDLQ.Arn
+
+
+  # ---------------------------------------------------------------- Monitoramento
+
+  # Alarmes de erro das Lambdas.
+  AlarmeErroReceberAvaliacao:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-erro-receber-avaliacao"
+      AlarmDescription: Erros na Lambda de recebimento de avaliacoes
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ReceberAvaliacaoFunction
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  AlarmeErroNotificarUrgencia:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-erro-notificar-urgencia"
+      AlarmDescription: Erros na Lambda de notificacao de urgencia
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref NotificarUrgenciaFunction
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  AlarmeErroGerarRelatorioSemanal:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-erro-gerar-relatorio-semanal"
+      AlarmDescription: Erros na Lambda de geracao do relatorio semanal
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref GerarRelatorioSemanalFunction
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  # Se houver mensagem em uma DLQ, algum processamento falhou definitivamente.
+  AlarmeFilaCriticasDLQ:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-mensagem-dlq-criticas"
+      AlarmDescription: Existem mensagens na DLQ de avaliacoes criticas
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt FilaCriticasDLQ.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  AlarmeFilaRelatorioSemanalDLQ:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-mensagem-dlq-relatorio"
+      AlarmDescription: Existem mensagens na DLQ do relatorio semanal
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt FilaRelatorioSemanalDLQ.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  # Dashboard operacional para demonstracao e acompanhamento da aplicacao.
+  FeedbackDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "${AWS::StackName}-monitoramento"
+      DashboardBody:
+        Fn::Sub: |
+          {
+            "widgets": [
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 0,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "Invocacoes das Lambdas",
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "stat": "Sum",
+                  "period": 300,
+                  "metrics": [
+                    ["AWS/Lambda", "Invocations", "FunctionName", "${ReceberAvaliacaoFunction}"],
+                    [".", ".", ".", "${NotificarUrgenciaFunction}"],
+                    [".", ".", ".", "${GerarRelatorioSemanalFunction}"]
+                  ]
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 0,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "Erros das Lambdas",
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "stat": "Sum",
+                  "period": 300,
+                  "metrics": [
+                    ["AWS/Lambda", "Errors", "FunctionName", "${ReceberAvaliacaoFunction}"],
+                    [".", ".", ".", "${NotificarUrgenciaFunction}"],
+                    [".", ".", ".", "${GerarRelatorioSemanalFunction}"]
+                  ]
+                }
+              },
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 6,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "Mensagens nas DLQs",
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "stat": "Maximum",
+                  "period": 300,
+                  "metrics": [
+                    ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "${FilaCriticasDLQ.QueueName}"],
+                    [".", ".", ".", "${FilaRelatorioSemanalDLQ.QueueName}"]
+                  ]
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 6,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "DynamoDB - Throttling",
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "stat": "Sum",
+                  "period": 300,
+                  "metrics": [
+                    ["AWS/DynamoDB", "ReadThrottleEvents", "TableName", "${TabelaAvaliacoes}"],
+                    [".", "WriteThrottleEvents", ".", "${TabelaAvaliacoes}"]
+                  ]
+                }
+              }
+            ]
+          }
 
 Outputs:
+
   UrlAvaliacao:
     Description: Endpoint do POST /avaliacao (envie o header x-api-key)
     Value: !Sub "https://${FeedbackApi}.execute-api.${AWS::Region}.amazonaws.com/prod/avaliacao"
+
   ApiKeyId:
     Description: >
-      ID da API key gerada pelo SAM. Para ver o valor:
-      aws apigateway get-api-key --include-value --api-key <ID> (ou console API Gateway > API keys)
+      ID da API key gerada pelo SAM.
+      Para ver o valor use aws apigateway get-api-key --include-value.
     Value: !Ref FeedbackApiApiKey
+
   TabelaAvaliacoes:
     Description: Nome da tabela DynamoDB
     Value: !Ref TabelaAvaliacoes
+
   FilaCriticasUrl:
     Description: URL da fila de avaliações críticas
     Value: !Ref FilaCriticas
+
   FilaCriticasArn:
-    Description: ARN da fila de avaliações críticas (gatilho da notificar-urgencia)
+    Description: ARN da fila de avaliações críticas
     Value: !GetAtt FilaCriticas.Arn
+
+  FilaRelatorioSemanalDLQUrl:
+    Description: URL da DLQ do relatório semanal
+    Value: !Ref FilaRelatorioSemanalDLQ
