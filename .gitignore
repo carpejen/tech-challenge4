@@ -7,3 +7,8 @@ target/
 *.iml
 .vscode/
 .DS_Store
+
+# Ambiente e eventos locais
+env.local.json
+evento-*.json
+resposta-*.json

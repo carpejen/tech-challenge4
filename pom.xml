@@ -19,8 +19,7 @@
         <module>shared</module>
         <module>receber-avaliacao</module>
         <module>notificar-urgencia</module>
-        <!-- Descomente ao implementar cada Lambda (ver o README de cada pasta) -->
-        <!-- <module>gerar-relatorio-semanal</module> -->
+        <module>gerar-relatorio-semanal</module>
     </modules>
 
     <properties>

@@ -1,0 +1,27 @@
+services:
+  localstack:
+    container_name: tech-challenge-4-localstack
+    image: localstack/localstack:4.14.0
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=dynamodb,sqs,ses
+      - AWS_DEFAULT_REGION=us-east-2
+      - DEBUG=0
+    volumes:
+      - localstack-data:/var/lib/localstack
+    networks:
+      - tc4-local
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  localstack-data:
+
+networks:
+  tc4-local:
+    name: tc4-local
