@@ -15,7 +15,7 @@ A solução foi desenvolvida em **Java 21 + Quarkus** e executada em **AWS**, ut
 |---|---:|
 | Felipe Ulson Sora | RM370766 |
 | Gabriel Alberto Ferreira Pinto | RM374005 |
-| Jeniffer da Nobrega Bandeira | RM3711936 |
+| Jeniffer da Nobrega Bandeira | RM371936 |
 
 ---
 
