@@ -1,0 +1,330 @@
+{
+  "info": {
+    "_postman_id": "a08090ef-8667-490f-a7c3-d4e055c03a8f",
+    "name": "Tech Challenge 4 - Plataforma de Feedback Serverless",
+    "description": "Collection de validacao visual do Tech Challenge 4. Preencha apenas a variavel apiKey no Postman.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://t535ci5ig1.execute-api.us-east-2.amazonaws.com/prod",
+      "type": "string"
+    },
+    {
+      "key": "apiKey",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - Sem API Key - 403",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"descricao\": \"Teste sem API key\",\n  \"nota\": 9\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/avaliacao",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "avaliacao"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status 403\", function () {",
+              "    pm.response.to.have.status(403);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Avaliacao BAIXA - nota 9",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{apiKey}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"descricao\": \"Excelente aula sobre AWS\",\n  \"nota\": 9\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/avaliacao",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "avaliacao"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "pm.test(\"Urgencia BAIXA\", function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.urgencia).to.eql(\"BAIXA\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Avaliacao MEDIA - nota 6",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{apiKey}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"descricao\": \"A aula foi razoavel, mas pode melhorar\",\n  \"nota\": 6\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/avaliacao",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "avaliacao"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "pm.test(\"Urgencia MEDIA\", function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.urgencia).to.eql(\"MEDIA\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Avaliacao CRITICA - nota 2",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{apiKey}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"descricao\": \"A aula apresentou problemas graves no conteudo\",\n  \"nota\": 2\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/avaliacao",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "avaliacao"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "pm.test(\"Urgencia CRITICA\", function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.urgencia).to.eql(\"CRITICA\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 - Nota 11 - 400",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{apiKey}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"descricao\": \"Nota invalida acima do limite\",\n  \"nota\": 11\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/avaliacao",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "avaliacao"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status 400\", function () {",
+              "    pm.response.to.have.status(400);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 - Nota -1 - 400",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{apiKey}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"descricao\": \"Nota invalida abaixo do limite\",\n  \"nota\": -1\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/avaliacao",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "avaliacao"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status 400\", function () {",
+              "    pm.response.to.have.status(400);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 - JSON invalido - 400",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{apiKey}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"descricao\":\"JSON invalido\",\"nota\":9"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/avaliacao",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "avaliacao"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status 400\", function () {",
+              "    pm.response.to.have.status(400);",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
