@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plataforma de Feedback Serverless — Tech Challenge Fase 4</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Montserrat:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+  <canvas id="fundo" aria-hidden="true"></canvas>
+  <div class="vinheta" aria-hidden="true"></div>
+
+  <!-- Palco fixo de 1920x1080 que escala para caber na janela -->
+  <main id="palco" class="palco">
+    <div id="slides"></div>
+
+    <footer class="hud">
+      <span class="hud-marca">Tech Challenge <i>·</i> Fase 4</span>
+      <nav id="progresso" class="hud-progresso" aria-label="Slides"></nav>
+      <span class="hud-conta"><b id="atual">01</b> / <span id="total">15</span></span>
+    </footer>
+
+    <div id="indice" class="indice" hidden></div>
+  </main>
+
+  <noscript>Esta apresentação precisa de JavaScript.</noscript>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
